@@ -56,3 +56,23 @@ python tools/measure_memory.py    # ★ список проти генерато
 ## Приклад звіту
 
 Див. `reports/summary.txt` (для `data/input.csv`, дата 2026-01-03).
+
+## Об'єктна модель (версія 7.0.0, лабораторна робота № 7)
+
+| Клас | Призначення |
+|------|-------------|
+| `Repair` | базовий клас: `__slots__`, властивості з перевіркою (`ticket`, `client`, `device`, `price`), лише для читання (`received`, `completed`, `days`, `tier`, `sort_key`), `__str__`, `__repr__`, `__eq__` |
+| `GadgetRepair` | `total_price() = price × 1.05` (гарантійний збір) |
+| `ApplianceRepair` | `total_price() = price + 200 + 20 × days` (виклик майстра і дні ремонту) |
+| `create_repair` | фабрика: побутова техніка за типом пристрою → `ApplianceRepair`, інше → `GadgetRepair` |
+| `Priced` | `Protocol`: `days`, `tier`, `total_price()` |
+| `Workload`, `ReportSummary` | `@dataclass(frozen=True)` |
+| `ReportWriter` ★ | контекстний менеджер: тимчасовий файл → `os.replace`, за винятку файл видаляється |
+
+Формат CSV і текст звіту не змінилися (тест `test_equivalence.py` порівнює з копією моделі ЛР6 у
+`tests/legacy_v6`). Додаткова опція `--details` друкує ціни з надбавками за рівнями:
+
+```text
+kzp-lab06 data/input.csv out/summary.txt --details
+python tools/measure_models.py      # пам'ять словників і об'єктів
+```
