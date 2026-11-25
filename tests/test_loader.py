@@ -9,45 +9,47 @@ import pytest
 from conftest import DATA, HEADER
 from kzp_lab06.errors import DataError
 from kzp_lab06.loader import iter_records, load_records, parse_row
+from kzp_lab06.models import ApplianceRepair, GadgetRepair
 
 
 def test_control_file_has_seven_records():
     records = load_records(DATA / "input.csv")
     assert len(records) == 7
-    assert [r["ticket"] for r in records] == [1, 2, 3, 4, 5, 6, 7]
+    assert [r.ticket for r in records] == [1, 2, 3, 4, 5, 6, 7]
 
 
 def test_field_types_and_derived_days():
     first = load_records(DATA / "input.csv")[0]
-    assert first == {
-        "ticket": 1,
-        "client": "Іваненко, Петро",
-        "device": "Ноутбук",
-        "received": date(2026, 1, 1),
-        "completed": date(2026, 1, 4),
-        "price": 650.0,
-        "days": 3,
-    }
-    assert isinstance(first["ticket"], int)
-    assert isinstance(first["price"], float)
+    assert first == GadgetRepair(
+        1, "Іваненко, Петро", "Ноутбук", date(2026, 1, 1), date(2026, 1, 4), 650.0
+    )
+    assert first.days == 3
+    assert isinstance(first.ticket, int)
+    assert isinstance(first.price, float)
+
+
+def test_loader_creates_subtypes():
+    kinds = [type(r) for r in load_records(DATA / "input.csv")]
+    assert kinds.count(ApplianceRepair) == 2
+    assert kinds.count(GadgetRepair) == 5
 
 
 def test_comma_and_doubled_quotes_in_field():
     records = load_records(DATA / "input.csv")
-    assert records[6]["client"] == 'О\'Коннор, "Шон"'
+    assert records[6].client == 'О\'Коннор, "Шон"'
 
 
 def test_zero_price_is_allowed():
-    assert load_records(DATA / "input.csv")[6]["price"] == 0.0
+    assert load_records(DATA / "input.csv")[6].price == 0.0
 
 
 def test_whitespace_is_normalized(write_csv):
     path = write_csv(f"{HEADER}\n 8 ,  Коваль   Оксана ,Планшет , 2026-01-01 ,2026-01-02, 10 \n")
     record = load_records(path)[0]
-    assert record["ticket"] == 8
-    assert record["client"] == "Коваль Оксана"
-    assert record["device"] == "Планшет"
-    assert record["price"] == 10.0
+    assert record.ticket == 8
+    assert record.client == "Коваль Оксана"
+    assert record.device == "Планшет"
+    assert record.price == 10.0
 
 
 def test_column_order_does_not_matter(write_csv):
@@ -55,19 +57,19 @@ def test_column_order_does_not_matter(write_csv):
         "price,completed,received,device,client,ticket\n100,2026-01-03,2026-01-01,Ноутбук,Іван,5\n"
     )
     record = load_records(path)[0]
-    assert (record["ticket"], record["days"], record["price"]) == (5, 2, 100.0)
+    assert (record.ticket, record.days, record.price) == (5, 2, 100.0)
 
 
 def test_crlf_line_endings(write_csv):
     path = write_csv(
         f"{HEADER}\r\n1,А,Б,2026-01-01,2026-01-02,1\r\n2,В,Г,2026-01-01,2026-01-03,2\r\n"
     )
-    assert [r["days"] for r in load_records(path)] == [1, 2]
+    assert [r.days for r in load_records(path)] == [1, 2]
 
 
 def test_multiline_quoted_field(write_csv):
     path = write_csv(f'{HEADER}\n1,"Бондар\nМарія",Ноутбук,2026-01-01,2026-01-02,1\n')
-    assert load_records(path)[0]["client"] == "Бондар Марія"
+    assert load_records(path)[0].client == "Бондар Марія"
 
 
 def test_header_only_is_empty_input():
@@ -165,7 +167,7 @@ def test_not_utf8_file(write_csv):
 def test_iter_records_is_lazy(write_csv):
     path = write_csv(f"{HEADER}\n1,А,Б,2026-01-01,2026-01-02,1\n2,А,Б,2026-01-01,2026-01-02,x\n")
     records = iter_records(path)
-    assert next(records)["ticket"] == 1  # хибний другий рядок ще не прочитано
+    assert next(records).ticket == 1  # хибний другий рядок ще не прочитано
     with pytest.raises(DataError):
         next(records)
 
@@ -179,4 +181,4 @@ def test_parse_row_directly():
         "completed": "2026-01-11",
         "price": "1.5",
     }
-    assert parse_row(row, 9)["days"] == 10
+    assert parse_row(row, 9).days == 10
