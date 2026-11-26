@@ -1,1 +1,1 @@
-ticket,client,device,received,completed,price
+customer,device,fault,date,cost,status

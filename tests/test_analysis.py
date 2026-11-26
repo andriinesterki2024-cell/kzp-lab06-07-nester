@@ -1,4 +1,4 @@
-"""Тести обчислень."""
+"""Тести обчислень варіанта 16."""
 
 from __future__ import annotations
 
@@ -9,21 +9,17 @@ import pytest
 from conftest import DATA
 from kzp_lab06.analysis import (
     build_report,
-    count_by_device,
-    in_work,
-    longest_repair,
+    cost_by_fault,
+    is_open,
     make_summary,
+    most_expensive,
+    open_orders,
     preview,
-    select_in_work,
     stream_summary,
     uk_key,
-    unique_clients,
-    workload,
+    unique_devices,
 )
 from kzp_lab06.loader import iter_records, load_records
-from kzp_lab06.models import Workload
-
-REF = date(2026, 1, 3)
 
 
 @pytest.fixture
@@ -31,59 +27,49 @@ def records():
     return load_records(DATA / "input.csv")
 
 
-def test_in_work_boundaries(records):
-    by_ticket = {r.ticket: r for r in records}
-    assert in_work(by_ticket[2], REF)  # прийнято саме цього дня
-    assert not in_work(by_ticket[3], REF)  # завершено саме цього дня
-    assert in_work(by_ticket[1], REF)  # останній день перед завершенням
-    assert not in_work(by_ticket[5], REF)  # ще не прийнято
+def test_is_open_means_status_not_done(records):
+    assert [is_open(r) for r in records] == [False, True, True, True, True, False, False]
 
 
-def test_select_in_work(records):
-    assert [r.ticket for r in select_in_work(records, REF)] == [1, 2, 4, 6]
+def test_open_orders_sorted_by_date(records):
+    opened = open_orders(records)
+    assert [(r["date"].isoformat(), r["customer"]) for r in opened] == [
+        ("2026-01-02", "Шевчук Андрій"),
+        ("2026-01-03", "Бондар Марія"),
+        ("2026-01-08", "Коваль Оксана"),
+        ("2026-01-10", "Коваль Оксана"),
+    ]
 
 
-def test_select_in_work_empty_result(records):
-    assert select_in_work(records, date(2026, 2, 1)) == []
+def test_open_orders_empty_when_all_done():
+    assert open_orders(load_records(DATA / "all-done.csv")) == []
 
 
-def test_count_by_device(records):
-    assert count_by_device(records) == {
-        "Ноутбук": 2,
-        "Планшет": 1,
-        "Пральна машина": 1,
-        "Смартфон": 2,
-        "Холодильник": 1,
+def test_cost_by_fault_sums_and_orders_keys(records):
+    totals = cost_by_fault(records)
+    assert totals == {
+        "Гарантія: заміна підшипника": 2750.0,
+        "Діагностика": 0.0,
+        "Заміна екрана": 6400.0,
+        "Заміна компресора": 5400.0,
+        "Заміна термопасти": 1750.0,
     }
-    assert list(count_by_device(records)) == sorted(count_by_device(records), key=uk_key)
+    assert list(totals) == sorted(totals, key=uk_key)
 
 
-def test_unique_clients_removes_duplicates(records):
-    clients = unique_clients(records)
-    assert isinstance(clients, set)
-    assert len(clients) == 6
-    assert "Коваль Оксана" in clients
+def test_unique_devices_removes_duplicates(records):
+    devices = unique_devices(records)
+    assert isinstance(devices, set)
+    assert devices == {"Ноутбук", "Планшет", "Пральна машина", "Смартфон", "Холодильник"}
 
 
-def test_workload(records):
-    load = workload(records, REF)
-    assert load == Workload(in_work=4, total=7)
-    assert load.percent == pytest.approx(57.142857)
+def test_most_expensive(records):
+    assert most_expensive(records)["customer"] == "Шевчук Андрій"
 
 
-def test_workload_counts_ticket_once(records):
-    twice = records + [records[0]]
-    assert workload(twice, REF).total == 7
-
-
-def test_longest_repair(records):
-    assert longest_repair(records).ticket == 4
-
-
-def test_longest_repair_tie_takes_smaller_ticket(records):
-    six_days = [r for r in records if r.days == 6]
-    assert [r.ticket for r in six_days] == [3, 6]
-    assert longest_repair(list(reversed(six_days))).ticket == 3
+def test_most_expensive_tie_takes_earlier_date(records):
+    pair = [r for r in records if r["cost"] == 3200.0]
+    assert most_expensive(list(reversed(pair)))["date"] == date(2026, 1, 6)
 
 
 def test_ukrainian_order():
@@ -100,72 +86,71 @@ def test_ukrainian_order():
 
 
 def test_make_summary_with_args_and_labels(records):
-    assert make_summary(records, "days", "price", days="Днів", price="Виторг") == {
-        "count": 7,
-        "Днів": 30.0,
-        "Виторг": 13400.0,
+    assert make_summary(records, "new", "in_progress", new="Нові", in_progress="У роботі") == {
+        "count": 4,
+        "Нові": 2750.0,
+        "У роботі": 8600.0,
     }
 
 
 def test_make_summary_defaults(records):
-    assert make_summary(records) == {"count": 7}
-    assert make_summary(records, "price") == {"count": 7, "price": 13400.0}
+    assert make_summary(records) == {"count": 0}
+    assert make_summary(records, "done") == {"count": 3, "done": 4950.0}
 
 
-def test_make_summary_minimum_days(records):
-    assert make_summary(records, "days", minimum_days=6) == {"count": 3, "days": 22.0}
-    assert make_summary(records, "price", minimum_days=100) == {"count": 0, "price": 0.0}
+def test_make_summary_minimum_cost(records):
+    assert make_summary(records, "new", minimum_cost=100) == {"count": 1, "new": 2750.0}
+    assert make_summary(records, "done", minimum_cost=10_000) == {"count": 0, "done": 0}
 
 
 def test_make_summary_errors(records):
-    with pytest.raises(ValueError, match="Невідомі метрики: weight"):
-        make_summary(records, "weight")
-    with pytest.raises(ValueError, match="Підписи для невибраних метрик: price"):
-        make_summary(records, "days", price="Виторг")
+    with pytest.raises(ValueError, match="Невідомі стани: closed"):
+        make_summary(records, "closed")
+    with pytest.raises(ValueError, match="Підписи для невибраних станів: done"):
+        make_summary(records, "new", done="Готові")
 
 
 def test_empty_input_everywhere():
-    assert select_in_work([], REF) == []
-    assert count_by_device([]) == {}
-    assert unique_clients([]) == set()
-    assert workload([], REF) == Workload(0, 0)
-    assert workload([], REF).percent == 0.0
-    assert longest_repair([]) is None
-    assert make_summary([], "days") == {"count": 0, "days": 0.0}
+    assert open_orders([]) == []
+    assert cost_by_fault([]) == {}
+    assert unique_devices([]) == set()
+    assert most_expensive([]) is None
+    assert make_summary([], "new") == {"count": 0, "new": 0}
 
 
 def test_build_report(records):
-    report = build_report(records, REF)
-    assert report.count == 7
-    assert report.total_days == 30
-    assert report.total_price == 13400.0
-    assert report.clients[0] == "Бондар Марія"
-    assert report.longest.ticket == 4
+    report = build_report(records)
+    assert report["count"] == 7
+    assert len(report["open_orders"]) == 4
+    assert report["open_cost"] == 11350.0
+    assert report["total_cost"] == 16300.0
+    assert report["devices"][0] == "Ноутбук"
+    assert report["most_expensive"]["cost"] == 5400.0
 
 
 def test_build_report_does_not_modify_input(records):
-    copy = [repr(r) for r in records]
-    build_report(records, REF)
-    assert [repr(r) for r in records] == copy
+    copy = [dict(r) for r in records]
+    build_report(records)
+    assert records == copy
 
 
 def test_preview_reads_only_first_records():
     gen = iter_records(DATA / "input.csv")
-    assert [r.ticket for r in preview(gen, 2)] == [1, 2]
-    assert next(gen).ticket == 3  # генератор продовжує з третього запису
+    assert [r["customer"] for r in preview(gen, 2)] == ["Іваненко, Петро", "Коваль Оксана"]
+    assert next(gen)["customer"] == "Бондар Марія"
 
 
 def test_stream_summary_equals_list_based(records):
-    streamed = stream_summary(iter_records(DATA / "input.csv"), REF)
-    report = build_report(records, REF)
-    assert streamed["count"] == report.count
-    assert streamed["in_work"] == len(report.in_work)
-    assert streamed["clients"] == len(report.clients)
-    assert tuple(streamed["count_by_device"].items()) == report.count_by_device
-    assert streamed["longest_ticket"] == report.longest.ticket
-    assert streamed["total_days"] == report.total_days
-    assert streamed["total_price"] == report.total_price
+    streamed = stream_summary(iter_records(DATA / "input.csv"))
+    report = build_report(records)
+    assert streamed["count"] == report["count"]
+    assert streamed["open_orders"] == len(report["open_orders"])
+    assert streamed["open_cost"] == report["open_cost"]
+    assert streamed["devices"] == len(report["devices"])
+    assert streamed["cost_by_fault"] == report["cost_by_fault"]
+    assert streamed["most_expensive_cost"] == report["most_expensive"]["cost"]
+    assert streamed["total_cost"] == report["total_cost"]
 
 
 def test_stream_summary_empty():
-    assert stream_summary(iter([]), REF)["longest_ticket"] is None
+    assert stream_summary(iter([]))["most_expensive_cost"] is None

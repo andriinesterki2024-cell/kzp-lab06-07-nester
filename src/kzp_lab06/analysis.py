@@ -1,21 +1,25 @@
-"""Обчислення над об'єктами ремонтів: відбір, словник, множина, завантаження, підсумок.
+"""Обчислення над заявками (таблиця варіантів ЛР6, варіант 16).
 
-Функції працюють через властивості й спільні методи моделі; перевірок конкретного
-підтипу та назв підтипів у модулі немає. Модуль не відкриває файлів і не форматує текст.
+Відбір — ``status != "done"``; словник — сума вартості за несправністю (fault);
+множина — пристрої; звіт — відкриті заявки й найдорожчий ремонт.
+Модуль не відкриває файлів і не форматує текст.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import date
 from itertools import islice
 from typing import Any
 
-from kzp_lab06.models import Priced, Repair, ReportSummary, Workload
+from kzp_lab06.loader import STATUSES, Record
 
-#: Український алфавіт для впорядкування імен і назв.
+#: Український алфавіт для впорядкування назв (str.__lt__ порівнює коди Unicode,
+#: тому «Іваненко» опинився б після «Шевчука»).
 UKRAINIAN_ALPHABET = "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя"
 _ORDER = {letter: index for index, letter in enumerate(UKRAINIAN_ALPHABET)}
+
+#: Стан завершеної заявки.
+DONE = "done"
 
 
 def uk_key(text: str) -> tuple[tuple[int, int | str], ...]:
@@ -24,135 +28,123 @@ def uk_key(text: str) -> tuple[tuple[int, int | str], ...]:
     return tuple((0, _ORDER[ch]) if ch in _ORDER else (1, ch) for ch in letters)
 
 
-def in_work(repair: Repair, reference_date: date) -> bool:
-    """Ремонт у роботі на дату: день прийому — так, день завершення — ні."""
-    return repair.received <= reference_date < repair.completed
+def is_open(record: Record) -> bool:
+    """Заявка відкрита (незавершена), якщо її стан не ``done``."""
+    return record["status"] != DONE
 
 
-def select_in_work(repairs: list[Repair], reference_date: date) -> list[Repair]:
-    """Відбір (list comprehension): ремонти в роботі, за ключем sort_key."""
-    selected = [repair for repair in repairs if in_work(repair, reference_date)]
-    return sorted(selected, key=lambda repair: repair.sort_key)
+def open_orders(records: list[Record]) -> list[Record]:
+    """Відбір (list comprehension): відкриті заявки за датою, потім за клієнтом."""
+    selected = [record for record in records if is_open(record)]
+    return sorted(selected, key=lambda record: (record["date"], uk_key(record["customer"])))
 
 
-def count_by_device(repairs: list[Repair]) -> dict[str, int]:
-    """Словник «тип пристрою → кількість ремонтів» за українським алфавітом."""
-    counts: dict[str, int] = {}
-    for repair in repairs:
-        counts[repair.device] = counts.get(repair.device, 0) + 1
-    return {device: counts[device] for device in sorted(counts, key=uk_key)}
+def cost_by_fault(records: list[Record]) -> dict[str, float]:
+    """Словник «несправність → сума вартості» з ключами за українським алфавітом."""
+    totals: dict[str, float] = {}
+    # Звичайний цикл проходить записи один раз; comprehension із sum() для кожної
+    # несправності проходив би їх повторно.
+    for record in records:
+        totals[record["fault"]] = totals.get(record["fault"], 0.0) + record["cost"]
+    # dict comprehension: стабільний порядок ключів.
+    return {fault: totals[fault] for fault in sorted(totals, key=uk_key)}
 
 
-def unique_clients(repairs: list[Repair]) -> set[str]:
-    """Множина клієнтів без повторів (set comprehension)."""
-    return {repair.client for repair in repairs}
+def unique_devices(records: list[Record]) -> set[str]:
+    """Множина пристроїв без повторів (set comprehension)."""
+    return {record["device"] for record in records}
 
 
-def workload(repairs: list[Repair], reference_date: date) -> Workload:
-    """Завантаження майстерні як незмінне значення Workload."""
-    tickets = {repair.ticket for repair in repairs}
-    busy = {repair.ticket for repair in repairs if in_work(repair, reference_date)}
-    return Workload(in_work=len(busy), total=len(tickets))
-
-
-def longest_repair(repairs: list[Repair]) -> Repair | None:
-    """Найдовший ремонт; за рівності — менший номер квитанції."""
-    if not repairs:
+def most_expensive(records: list[Record]) -> Record | None:
+    """Найдорожчий ремонт; за рівної вартості — раніша дата."""
+    if not records:
         return None
-    return min(repairs, key=lambda repair: (-repair.days, repair.ticket))
+    return min(records, key=lambda record: (-record["cost"], record["date"]))
 
 
 def make_summary(
-    repairs: list[Repair],
-    *metrics: str,
-    minimum_days: int = 1,
+    records: list[Record],
+    *statuses: str,
+    minimum_cost: float = 0.0,
     **labels: str,
 ) -> dict[str, Any]:
-    """Підсумок за числовими властивостями (``"days"``, ``"price"``), як у ЛР6."""
-    allowed = {"days", "price"}
-    unknown = [name for name in metrics if name not in allowed]
+    """Підсумок вартості за станами заявок.
+
+    Args:
+        records: записи.
+        *statuses: стани, для яких рахується сума вартості
+            (``"new"``, ``"in_progress"``, ``"done"``).
+        minimum_cost: враховуються лише заявки з вартістю від цього значення (типово 0.0).
+        **labels: підписи станів у результаті, наприклад ``new="Нові"``.
+
+    Returns:
+        Словник ``{"count": n, <підпис або стан>: сума, ...}`` у порядку *statuses;
+        count — кількість врахованих заявок вибраних станів.
+
+    Raises:
+        ValueError: невідомий стан або підпис для стану, якого немає в *statuses.
+    """
+    unknown = [name for name in statuses if name not in STATUSES]
     if unknown:
-        raise ValueError(f"Невідомі метрики: {', '.join(unknown)}")
-    extra = [name for name in labels if name not in metrics]
+        raise ValueError(f"Невідомі стани: {', '.join(unknown)}")
+    extra = [name for name in labels if name not in statuses]
     if extra:
-        raise ValueError(f"Підписи для невибраних метрик: {', '.join(extra)}")
-    kept = [repair for repair in repairs if repair.days >= minimum_days]
+        raise ValueError(f"Підписи для невибраних станів: {', '.join(extra)}")
+    kept = [r for r in records if r["status"] in statuses and r["cost"] >= minimum_cost]
     summary: dict[str, Any] = {"count": len(kept)}
-    for name in metrics:
-        summary[labels.get(name, name)] = float(sum(getattr(repair, name) for repair in kept))
+    for status in statuses:
+        summary[labels.get(status, status)] = sum(r["cost"] for r in kept if r["status"] == status)
     return summary
 
 
-def build_report(repairs: list[Repair], reference_date: date) -> ReportSummary:
-    """Збирає незмінний підсумок звіту (вхідний список не змінюється)."""
-    totals = make_summary(repairs, "days", "price")
-    return ReportSummary(
-        reference_date=reference_date,
-        count=len(repairs),
-        in_work=tuple(select_in_work(repairs, reference_date)),
-        workload=workload(repairs, reference_date),
-        count_by_device=tuple(count_by_device(repairs).items()),
-        clients=tuple(sorted(unique_clients(repairs), key=uk_key)),
-        longest=longest_repair(repairs),
-        total_days=int(totals["days"]),
-        total_price=totals["price"],
-    )
+def build_report(records: list[Record]) -> dict[str, Any]:
+    """Збирає всі показники звіту у словник (вхідний список не змінюється)."""
+    opened = open_orders(records)
+    return {
+        "count": len(records),
+        "open_orders": opened,
+        "open_cost": sum(record["cost"] for record in opened),
+        "cost_by_fault": cost_by_fault(records),
+        "devices": sorted(unique_devices(records), key=uk_key),
+        "most_expensive": most_expensive(records),
+        "total_cost": sum(record["cost"] for record in records),
+    }
 
 
-# --- функції протоколу Priced: лише спільний метод, без перевірки класу ---
-def total_revenue(items: Iterable[Priced]) -> float:
-    """Сума цін із надбавками."""
-    return round(sum(item.total_price() for item in items), 2)
+def preview(records: Iterable[Record], limit: int = 3) -> list[Record]:
+    """Перші ``limit`` записів через itertools.islice (генератор далі не читається)."""
+    return list(islice(records, limit))
 
 
-def revenue_by_tier(items: Iterable[Priced]) -> dict[str, float]:
-    """Виторг із надбавками за рівнями обслуговування (за українським алфавітом)."""
-    totals: dict[str, float] = {}
-    for item in items:
-        totals[item.tier] = totals.get(item.tier, 0.0) + item.total_price()
-    return {tier: round(totals[tier], 2) for tier in sorted(totals, key=uk_key)}
+def stream_summary(records: Iterable[Record]) -> dict[str, Any]:
+    """Потоковий підсумок за один прохід (завдання із зірочкою).
 
-
-def most_expensive(items: Iterable[Priced]) -> Priced | None:
-    """Позиція з найбільшою ціною з надбавками (перша за рівності)."""
-    best: Priced | None = None
-    for item in items:
-        if best is None or item.total_price() > best.total_price():
-            best = item
-    return best
-
-
-def preview(repairs: Iterable[Repair], limit: int = 3) -> list[Repair]:
-    """Перші ``limit`` записів через itertools.islice."""
-    return list(islice(repairs, limit))
-
-
-def stream_summary(repairs: Iterable[Repair], reference_date: date) -> dict[str, Any]:
-    """Потоковий підсумок за один прохід (з ЛР6)."""
-    count = busy = total_days = 0
-    total_price = 0.0
-    tickets: set[int] = set()
-    clients: set[str] = set()
-    devices: dict[str, int] = {}
-    longest: Repair | None = None
-    for repair in repairs:
+    Зберігає лише лічильники, словник сум за несправністю, множину пристроїв і один
+    найдорожчий запис, тому придатний для генератора ``iter_records`` на великому файлі.
+    """
+    count = 0
+    opened = 0
+    open_cost = 0.0
+    total_cost = 0.0
+    faults: dict[str, float] = {}
+    devices: set[str] = set()
+    best: Record | None = None
+    for record in records:
         count += 1
-        tickets.add(repair.ticket)
-        clients.add(repair.client)
-        devices[repair.device] = devices.get(repair.device, 0) + 1
-        if in_work(repair, reference_date):
-            busy += 1
-        if longest is None or (-repair.days, repair.ticket) < (-longest.days, longest.ticket):
-            longest = repair
-        total_days += repair.days
-        total_price += repair.price
+        total_cost += record["cost"]
+        faults[record["fault"]] = faults.get(record["fault"], 0.0) + record["cost"]
+        devices.add(record["device"])
+        if is_open(record):
+            opened += 1
+            open_cost += record["cost"]
+        if best is None or (-record["cost"], record["date"]) < (-best["cost"], best["date"]):
+            best = record
     return {
         "count": count,
-        "in_work": busy,
-        "tickets": len(tickets),
-        "clients": len(clients),
-        "count_by_device": {d: devices[d] for d in sorted(devices, key=uk_key)},
-        "longest_ticket": longest.ticket if longest else None,
-        "total_days": total_days,
-        "total_price": total_price,
+        "open_orders": opened,
+        "open_cost": open_cost,
+        "devices": len(devices),
+        "cost_by_fault": {f: faults[f] for f in sorted(faults, key=uk_key)},
+        "most_expensive_cost": best["cost"] if best else None,
+        "total_cost": total_cost,
     }

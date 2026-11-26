@@ -3,18 +3,14 @@
 from __future__ import annotations
 
 import random
-from datetime import date
-
 from conftest import ROOT
 from kzp_lab06.analysis import build_report
 from kzp_lab06.loader import load_records
 from kzp_lab06.reporting import format_report, write_report
 
-REF = date(2026, 1, 3)
-
 
 def _text(records):
-    return format_report(build_report(records, REF))
+    return format_report(build_report(records))
 
 
 def test_report_matches_saved_example():
@@ -32,9 +28,9 @@ def test_report_does_not_depend_on_record_order():
 
 def test_empty_report():
     text = _text([])
-    assert "Записів у файлі: 0" in text
-    assert "Найдовший ремонт: немає" in text
-    assert "Загальний виторг: 0.00 грн" in text
+    assert "Заявок у файлі: 0" in text
+    assert "Найдорожчий ремонт: немає" in text
+    assert "Загальна вартість заявок: 0.00 грн" in text
 
 
 def test_write_report_creates_dirs_utf8_and_lf(tmp_path):
@@ -52,5 +48,5 @@ def test_write_report_overwrites_longer_file(tmp_path):
 
 def test_numbers_have_two_decimals():
     records = load_records(ROOT / "data" / "input.csv")
-    assert "(57.14%)" in _text(records)
-    assert "13400.00 грн" in _text(records)
+    assert "Вартість відкритих заявок: 11350.00 грн" in _text(records)
+    assert "  Діагностика: 0.00 грн" in _text(records)

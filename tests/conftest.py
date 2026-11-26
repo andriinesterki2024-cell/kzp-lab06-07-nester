@@ -8,7 +8,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
-HEADER = "ticket,client,device,received,completed,price"
+HEADER = "customer,device,fault,date,cost,status"
 
 
 @pytest.fixture

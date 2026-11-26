@@ -19,21 +19,28 @@ from pathlib import Path
 from kzp_lab06.analysis import build_report, stream_summary
 from kzp_lab06.loader import iter_records, load_records
 
-REF = date(2026, 1, 3)
 DEVICES = ("Ноутбук", "Смартфон", "Планшет", "Пральна машина", "Холодильник")
+FAULTS = ("Заміна екрана", "Заміна термопасти", "Діагностика", "Заміна компресора")
+STATUSES = ("new", "in_progress", "done")
 
 
 def make_csv(path: Path, rows: int) -> None:
-    """Створює CSV із ``rows`` синтетичними ремонтами."""
+    """Створює CSV із ``rows`` синтетичними заявками."""
     start = date(2025, 1, 1)
     with path.open("w", encoding="utf-8", newline="") as target:
         writer = csv.writer(target)
-        writer.writerow(["ticket", "client", "device", "received", "completed", "price"])
+        writer.writerow(["customer", "device", "fault", "date", "cost", "status"])
         for i in range(1, rows + 1):
-            received = start + timedelta(days=i % 400)
-            completed = received + timedelta(days=1 + i % 14)
-            client = f"Клієнт {i % 5000}"
-            writer.writerow([i, client, DEVICES[i % 5], received, completed, f"{100 + i % 900}.00"])
+            writer.writerow(
+                [
+                    f"Клієнт {i % 5000}",
+                    DEVICES[i % 5],
+                    FAULTS[i % 4],
+                    start + timedelta(days=i % 400),
+                    f"{100 + i % 900}.00",
+                    STATUSES[i % 3],
+                ]
+            )
 
 
 def measure(label: str, func):
@@ -55,19 +62,17 @@ def main() -> None:
         path = Path(folder) / "big.csv"
         make_csv(path, rows)
         print(f"Рядків у CSV: {rows}")
-        full, peak_list = measure(
-            "список (load_records)", lambda: build_report(load_records(path), REF)
-        )
+        full, peak_list = measure("список (load_records)", lambda: build_report(load_records(path)))
         streamed, peak_gen = measure(
-            "генератор (iter_records)", lambda: stream_summary(iter_records(path), REF)
+            "генератор (iter_records)", lambda: stream_summary(iter_records(path))
         )
     same = (
         full["count"] == streamed["count"]
-        and len(full["in_work"]) == streamed["in_work"]
-        and len(full["clients"]) == streamed["clients"]
-        and full["total_days"] == streamed["total_days"]
-        and abs(full["total_price"] - streamed["total_price"]) < 1e-6
-        and full["longest"]["ticket"] == streamed["longest_ticket"]
+        and len(full["open_orders"]) == streamed["open_orders"]
+        and len(full["devices"]) == streamed["devices"]
+        and full["cost_by_fault"] == streamed["cost_by_fault"]
+        and abs(full["total_cost"] - streamed["total_cost"]) < 1e-6
+        and full["most_expensive"]["cost"] == streamed["most_expensive_cost"]
     )
     print(f"Результати однакові: {same}")
     print(f"Генератор зменшив пікову пам'ять у {peak_list / peak_gen:.1f} разів")

@@ -17,23 +17,23 @@ def test_success(tmp_path, capsys):
     assert out.read_text(encoding="utf-8") == (ROOT / "reports" / "summary.txt").read_text(
         encoding="utf-8"
     )
-    assert "записів: 7" in capsys.readouterr().out
+    assert "заявок: 7" in capsys.readouterr().out
 
 
-def test_reference_date_option(tmp_path):
+def test_all_done_file_gives_empty_selection(tmp_path):
     out = tmp_path / "report.txt"
-    assert main([str(DATA / "input.csv"), str(out), "--reference-date", "2026-02-01"]) == EXIT_OK
-    assert "В роботі на дату (0):" in out.read_text(encoding="utf-8")
+    assert main([str(DATA / "all-done.csv"), str(out)]) == EXIT_OK
+    assert "Відкриті заявки (status != done): 0" in out.read_text(encoding="utf-8")
 
 
-def test_bad_reference_date(tmp_path):
+def test_unknown_option_gives_code_2(tmp_path):
     assert main([str(DATA / "input.csv"), str(tmp_path / "r.txt"), "--reference-date", "x"]) == 2
 
 
 def test_broken_csv_gives_code_2_and_no_report(tmp_path, capsys):
     out = tmp_path / "report.txt"
     assert main([str(DATA / "broken.csv"), str(out)]) == EXIT_DATA
-    assert "Помилка даних: Рядок 3: поле price має бути числом" in capsys.readouterr().err
+    assert "Помилка даних: Рядок 3: поле cost має бути числом" in capsys.readouterr().err
     assert not out.exists()
 
 
@@ -44,7 +44,7 @@ def test_missing_input(tmp_path):
 def test_empty_input_is_success(tmp_path):
     out = tmp_path / "r.txt"
     assert main([str(DATA / "empty.csv"), str(out)]) == EXIT_OK
-    assert "Записів у файлі: 0" in out.read_text(encoding="utf-8")
+    assert "Заявок у файлі: 0" in out.read_text(encoding="utf-8")
 
 
 def test_same_input_and_output_is_refused(tmp_path, capsys):
@@ -81,24 +81,3 @@ def test_run_as_module_in_subprocess(tmp_path):
 def test_import_does_not_run_cli(capsys):
     importlib.reload(importlib.import_module("kzp_lab06.cli"))
     assert capsys.readouterr().out == ""
-
-
-def test_details_option_prints_tier_prices(tmp_path, capsys):
-    out = tmp_path / "r.txt"
-    assert main([str(DATA / "input.csv"), str(out), "--details"]) == EXIT_OK
-    printed = capsys.readouterr().out
-    assert "Гаджети: 5512.50 грн" in printed
-    assert "Побутова техніка: 8870.00 грн" in printed
-    assert "Разом: 14382.50 грн" in printed
-    # зовнішній звіт не змінився
-    assert out.read_text(encoding="utf-8") == (ROOT / "reports" / "summary.txt").read_text(
-        encoding="utf-8"
-    )
-
-
-def test_lab07_dataset(tmp_path):
-    out = tmp_path / "r.txt"
-    assert main([str(DATA / "input-lab07.csv"), str(out)]) == EXIT_OK
-    text = out.read_text(encoding="utf-8")
-    assert "Записів у файлі: 7" in text
-    assert "Клієнти без повторів (6):" in text
