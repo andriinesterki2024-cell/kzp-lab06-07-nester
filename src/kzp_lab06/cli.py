@@ -1,4 +1,4 @@
-"""Командний рядок: ``kzp-lab06 INPUT OUTPUT``.
+"""Командний рядок: ``kzp-lab06 INPUT OUTPUT [--details]``.
 
 Коди завершення: 0 — звіт записано; 2 — помилка вхідних даних або аргументів;
 3 — звіт не вдалося записати.
@@ -14,7 +14,7 @@ from kzp_lab06 import __version__
 from kzp_lab06.analysis import build_report
 from kzp_lab06.errors import DataError
 from kzp_lab06.loader import load_records
-from kzp_lab06.reporting import format_report, write_report
+from kzp_lab06.reporting import format_details, format_report, write_report
 
 EXIT_OK = 0
 EXIT_DATA = 2
@@ -28,6 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("input", type=Path, help="вхідний CSV-файл")
     parser.add_argument("output", type=Path, help="файл звіту")
+    parser.add_argument(
+        "--details",
+        action="store_true",
+        help="надрукувати підсумок за несправностями й остаточну вартість",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 
@@ -65,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
         _error(f"Помилка запису звіту: {args.output} ({error.strerror or error})")
         return EXIT_WRITE
     _print(f"Звіт записано: {args.output} (заявок: {len(records)})", sys.stdout)
+    if args.details:
+        _print(format_details(records).rstrip(), sys.stdout)
     return EXIT_OK
 
 

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kzp-lab06"
-version = "6.0.0"
-description = "Обробка CSV ремонтної майстерні (КЗП, ЛР6, варіант 16)"
+version = "7.0.0"
+description = "Обробка CSV ремонтної майстерні: словникова (ЛР6) і об'єктна (ЛР7) модель, варіант 16"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Нестер А.В., КІ-303" }]
