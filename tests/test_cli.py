@@ -81,3 +81,24 @@ def test_run_as_module_in_subprocess(tmp_path):
 def test_import_does_not_run_cli(capsys):
     importlib.reload(importlib.import_module("kzp_lab06.cli"))
     assert capsys.readouterr().out == ""
+
+
+def test_details_option_prints_fault_summary(tmp_path, capsys):
+    out = tmp_path / "r.txt"
+    assert main([str(DATA / "input.csv"), str(out), "--details"]) == EXIT_OK
+    printed = capsys.readouterr().out
+    assert "  Заміна екрана: 2, 6400.00 грн, 6080.00 грн" in printed
+    assert "  Гарантійний: 0.00 грн" in printed
+    assert "  Разом: 12960.00 грн" in printed
+    # зовнішній звіт не змінився
+    assert out.read_text(encoding="utf-8") == (ROOT / "reports" / "summary.txt").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_lab07_dataset(tmp_path):
+    out = tmp_path / "r.txt"
+    assert main([str(DATA / "input-lab07.csv"), str(out)]) == EXIT_OK
+    text = out.read_text(encoding="utf-8")
+    assert "Заявок у файлі: 7" in text
+    assert "Відкриті заявки (status != done): 5" in text

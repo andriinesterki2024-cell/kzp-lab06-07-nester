@@ -10,7 +10,6 @@ from conftest import DATA
 from kzp_lab06.analysis import (
     build_report,
     cost_by_fault,
-    is_open,
     make_summary,
     most_expensive,
     open_orders,
@@ -28,12 +27,12 @@ def records():
 
 
 def test_is_open_means_status_not_done(records):
-    assert [is_open(r) for r in records] == [False, True, True, True, True, False, False]
+    assert [r.is_open for r in records] == [False, True, True, True, True, False, False]
 
 
 def test_open_orders_sorted_by_date(records):
     opened = open_orders(records)
-    assert [(r["date"].isoformat(), r["customer"]) for r in opened] == [
+    assert [(r.date.isoformat(), r.customer) for r in opened] == [
         ("2026-01-02", "Шевчук Андрій"),
         ("2026-01-03", "Бондар Марія"),
         ("2026-01-08", "Коваль Оксана"),
@@ -64,12 +63,12 @@ def test_unique_devices_removes_duplicates(records):
 
 
 def test_most_expensive(records):
-    assert most_expensive(records)["customer"] == "Шевчук Андрій"
+    assert most_expensive(records).customer == "Шевчук Андрій"
 
 
 def test_most_expensive_tie_takes_earlier_date(records):
-    pair = [r for r in records if r["cost"] == 3200.0]
-    assert most_expensive(list(reversed(pair)))["date"] == date(2026, 1, 6)
+    pair = [r for r in records if r.cost == 3200.0]
+    assert most_expensive(list(reversed(pair))).date == date(2026, 1, 6)
 
 
 def test_ukrainian_order():
@@ -120,36 +119,36 @@ def test_empty_input_everywhere():
 
 def test_build_report(records):
     report = build_report(records)
-    assert report["count"] == 7
-    assert len(report["open_orders"]) == 4
-    assert report["open_cost"] == 11350.0
-    assert report["total_cost"] == 16300.0
-    assert report["devices"][0] == "Ноутбук"
-    assert report["most_expensive"]["cost"] == 5400.0
+    assert report.count == 7
+    assert len(report.open_orders) == 4
+    assert report.open_cost == 11350.0
+    assert report.total_cost == 16300.0
+    assert report.devices[0] == "Ноутбук"
+    assert report.most_expensive.cost == 5400.0
 
 
 def test_build_report_does_not_modify_input(records):
-    copy = [dict(r) for r in records]
+    copy = [repr(r) for r in records]
     build_report(records)
-    assert records == copy
+    assert [repr(r) for r in records] == copy
 
 
 def test_preview_reads_only_first_records():
     gen = iter_records(DATA / "input.csv")
-    assert [r["customer"] for r in preview(gen, 2)] == ["Іваненко, Петро", "Коваль Оксана"]
-    assert next(gen)["customer"] == "Бондар Марія"
+    assert [r.customer for r in preview(gen, 2)] == ["Іваненко, Петро", "Коваль Оксана"]
+    assert next(gen).customer == "Бондар Марія"
 
 
 def test_stream_summary_equals_list_based(records):
     streamed = stream_summary(iter_records(DATA / "input.csv"))
     report = build_report(records)
-    assert streamed["count"] == report["count"]
-    assert streamed["open_orders"] == len(report["open_orders"])
-    assert streamed["open_cost"] == report["open_cost"]
-    assert streamed["devices"] == len(report["devices"])
-    assert streamed["cost_by_fault"] == report["cost_by_fault"]
-    assert streamed["most_expensive_cost"] == report["most_expensive"]["cost"]
-    assert streamed["total_cost"] == report["total_cost"]
+    assert streamed["count"] == report.count
+    assert streamed["open_orders"] == len(report.open_orders)
+    assert streamed["open_cost"] == report.open_cost
+    assert streamed["devices"] == len(report.devices)
+    assert tuple(streamed["cost_by_fault"].items()) == report.cost_by_fault
+    assert streamed["most_expensive_cost"] == report.most_expensive.cost
+    assert streamed["total_cost"] == report.total_cost
 
 
 def test_stream_summary_empty():
