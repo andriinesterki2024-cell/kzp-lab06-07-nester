@@ -21,6 +21,7 @@ from kzp_lab06.analysis import (
     workload,
 )
 from kzp_lab06.loader import iter_records, load_records
+from kzp_lab06.models import Workload
 
 REF = date(2026, 1, 3)
 
@@ -31,7 +32,7 @@ def records():
 
 
 def test_in_work_boundaries(records):
-    by_ticket = {r["ticket"]: r for r in records}
+    by_ticket = {r.ticket: r for r in records}
     assert in_work(by_ticket[2], REF)  # прийнято саме цього дня
     assert not in_work(by_ticket[3], REF)  # завершено саме цього дня
     assert in_work(by_ticket[1], REF)  # останній день перед завершенням
@@ -39,7 +40,7 @@ def test_in_work_boundaries(records):
 
 
 def test_select_in_work(records):
-    assert [r["ticket"] for r in select_in_work(records, REF)] == [1, 2, 4, 6]
+    assert [r.ticket for r in select_in_work(records, REF)] == [1, 2, 4, 6]
 
 
 def test_select_in_work_empty_result(records):
@@ -65,22 +66,24 @@ def test_unique_clients_removes_duplicates(records):
 
 
 def test_workload(records):
-    assert workload(records, REF) == {"in_work": 4, "total": 7, "percent": pytest.approx(57.142857)}
+    load = workload(records, REF)
+    assert load == Workload(in_work=4, total=7)
+    assert load.percent == pytest.approx(57.142857)
 
 
 def test_workload_counts_ticket_once(records):
-    twice = records + [dict(records[0])]
-    assert workload(twice, REF)["total"] == 7
+    twice = records + [records[0]]
+    assert workload(twice, REF).total == 7
 
 
 def test_longest_repair(records):
-    assert longest_repair(records)["ticket"] == 4
+    assert longest_repair(records).ticket == 4
 
 
 def test_longest_repair_tie_takes_smaller_ticket(records):
-    six_days = [r for r in records if r["days"] == 6]
-    assert [r["ticket"] for r in six_days] == [3, 6]
-    assert longest_repair(list(reversed(six_days)))["ticket"] == 3
+    six_days = [r for r in records if r.days == 6]
+    assert [r.ticket for r in six_days] == [3, 6]
+    assert longest_repair(list(reversed(six_days))).ticket == 3
 
 
 def test_ukrainian_order():
@@ -125,42 +128,43 @@ def test_empty_input_everywhere():
     assert select_in_work([], REF) == []
     assert count_by_device([]) == {}
     assert unique_clients([]) == set()
-    assert workload([], REF) == {"in_work": 0, "total": 0, "percent": 0.0}
+    assert workload([], REF) == Workload(0, 0)
+    assert workload([], REF).percent == 0.0
     assert longest_repair([]) is None
     assert make_summary([], "days") == {"count": 0, "days": 0.0}
 
 
 def test_build_report(records):
     report = build_report(records, REF)
-    assert report["count"] == 7
-    assert report["total_days"] == 30
-    assert report["total_price"] == 13400.0
-    assert report["clients"][0] == "Бондар Марія"
-    assert report["longest"]["ticket"] == 4
+    assert report.count == 7
+    assert report.total_days == 30
+    assert report.total_price == 13400.0
+    assert report.clients[0] == "Бондар Марія"
+    assert report.longest.ticket == 4
 
 
 def test_build_report_does_not_modify_input(records):
-    copy = [dict(r) for r in records]
+    copy = [repr(r) for r in records]
     build_report(records, REF)
-    assert records == copy
+    assert [repr(r) for r in records] == copy
 
 
 def test_preview_reads_only_first_records():
     gen = iter_records(DATA / "input.csv")
-    assert [r["ticket"] for r in preview(gen, 2)] == [1, 2]
-    assert next(gen)["ticket"] == 3  # генератор продовжує з третього запису
+    assert [r.ticket for r in preview(gen, 2)] == [1, 2]
+    assert next(gen).ticket == 3  # генератор продовжує з третього запису
 
 
 def test_stream_summary_equals_list_based(records):
     streamed = stream_summary(iter_records(DATA / "input.csv"), REF)
     report = build_report(records, REF)
-    assert streamed["count"] == report["count"]
-    assert streamed["in_work"] == len(report["in_work"])
-    assert streamed["clients"] == len(report["clients"])
-    assert streamed["count_by_device"] == report["count_by_device"]
-    assert streamed["longest_ticket"] == report["longest"]["ticket"]
-    assert streamed["total_days"] == report["total_days"]
-    assert streamed["total_price"] == report["total_price"]
+    assert streamed["count"] == report.count
+    assert streamed["in_work"] == len(report.in_work)
+    assert streamed["clients"] == len(report.clients)
+    assert tuple(streamed["count_by_device"].items()) == report.count_by_device
+    assert streamed["longest_ticket"] == report.longest.ticket
+    assert streamed["total_days"] == report.total_days
+    assert streamed["total_price"] == report.total_price
 
 
 def test_stream_summary_empty():

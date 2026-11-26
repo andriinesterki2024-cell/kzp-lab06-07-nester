@@ -1,26 +1,22 @@
-"""Читання CSV ремонтної майстерні та перетворення полів на типізовані значення.
+"""Читання CSV ремонтної майстерні та створення об'єктів моделі.
 
 Формат: UTF-8, заголовок ``ticket,client,device,received,completed,price``,
-порядок стовпців довільний. Запис — словник із перетвореними полями
-та похідними полями ``days`` (тривалість ремонту в днях).
+порядок стовпців довільний. Текст перетворюється на int, date і float тут,
+а інваріанти перевіряють setter-и моделі; їхні помилки отримують номер рядка.
 """
 
 from __future__ import annotations
 
 import csv
-import math
 from collections.abc import Iterator
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 from kzp_lab06.errors import DataError
+from kzp_lab06.models import Repair, create_repair
 
 #: Обов'язкові стовпці CSV.
 FIELDS: tuple[str, ...] = ("ticket", "client", "device", "received", "completed", "price")
-
-#: Запис після перетворення.
-Record = dict[str, Any]
 
 
 def _value(row: dict[str, str | None], field: str, row_number: int) -> str:
@@ -32,33 +28,28 @@ def _value(row: dict[str, str | None], field: str, row_number: int) -> str:
 
 
 def _parse_int(row: dict[str, str | None], field: str, row_number: int) -> int:
-    """Перетворює поле на додатне ціле."""
+    """Перетворює текст на ціле."""
+    # _value поза try: DataError успадковує ValueError і не має перехоплюватися нижче.
     text = _value(row, field, row_number)
     try:
-        number = int(text)
+        return int(text)
     except ValueError as error:
         raise DataError(f"Рядок {row_number}: поле {field} має бути цілим числом") from error
-    if number <= 0:
-        raise DataError(f"Рядок {row_number}: поле {field} має бути більшим за нуль")
-    return number
 
 
 def _parse_float(row: dict[str, str | None], field: str, row_number: int) -> float:
-    """Перетворює поле на скінченне невід'ємне число (нуль дозволено)."""
+    """Перетворює текст на число."""
+    # _value поза try: DataError успадковує ValueError і не має перехоплюватися нижче.
     text = _value(row, field, row_number)
     try:
-        number = float(text)
+        return float(text)
     except ValueError as error:
         raise DataError(f"Рядок {row_number}: поле {field} має бути числом") from error
-    if not math.isfinite(number):
-        raise DataError(f"Рядок {row_number}: поле {field} має бути скінченним числом")
-    if number < 0:
-        raise DataError(f"Рядок {row_number}: поле {field} не може бути від'ємним")
-    return number
 
 
 def _parse_date(row: dict[str, str | None], field: str, row_number: int) -> date:
-    """Перетворює поле на дату у форматі ISO YYYY-MM-DD."""
+    """Перетворює текст на дату ISO YYYY-MM-DD."""
+    # _value поза try: DataError успадковує ValueError і не має перехоплюватися нижче.
     text = _value(row, field, row_number)
     try:
         return date.fromisoformat(text)
@@ -68,44 +59,25 @@ def _parse_date(row: dict[str, str | None], field: str, row_number: int) -> date
         ) from error
 
 
-def _parse_text(row: dict[str, str | None], field: str, row_number: int) -> str:
-    """Нормалізує текст: прибирає зайві пробіли всередині й по краях."""
-    return " ".join(_value(row, field, row_number).split())
-
-
-def parse_row(row: dict[str, str | None], row_number: int) -> Record:
-    """Перетворює рядок DictReader на запис.
-
-    Args:
-        row: словник рядків від ``csv.DictReader``.
-        row_number: номер рядка у файлі (заголовок — рядок 1).
-
-    Returns:
-        Запис із полями ticket (int), client, device (str), received, completed (date),
-        price (float) і похідним days (int).
+def parse_row(row: dict[str, str | None], row_number: int) -> Repair:
+    """Перетворює рядок DictReader на об'єкт підтипу Repair.
 
     Raises:
-        DataError: якщо значення немає, воно хибне або рядок має зайві значення.
+        DataError: значення немає, воно хибне, рядок має зайві значення або порушено інваріант.
     """
     if None in row:
         raise DataError(f"Рядок {row_number}: забагато значень")
     ticket = _parse_int(row, "ticket", row_number)
-    client = _parse_text(row, "client", row_number)
-    device = _parse_text(row, "device", row_number)
+    client = _value(row, "client", row_number)
+    device = _value(row, "device", row_number)
     received = _parse_date(row, "received", row_number)
     completed = _parse_date(row, "completed", row_number)
     price = _parse_float(row, "price", row_number)
-    if completed <= received:
-        raise DataError(f"Рядок {row_number}: поле completed має бути пізніше за received")
-    return {
-        "ticket": ticket,
-        "client": client,
-        "device": device,
-        "received": received,
-        "completed": completed,
-        "price": price,
-        "days": (completed - received).days,
-    }
+    try:
+        return create_repair(ticket, client, device, received, completed, price)
+    except (TypeError, ValueError) as error:
+        # Повідомлення моделі збігаються з ЛР6; додається лише номер рядка.
+        raise DataError(f"Рядок {row_number}: {error}") from error
 
 
 def _check_header(fieldnames: list[str] | None) -> None:
@@ -118,8 +90,8 @@ def _check_header(fieldnames: list[str] | None) -> None:
         raise DataError(f"У заголовку немає стовпців: {', '.join(missing)}")
 
 
-def iter_records(path: Path) -> Iterator[Record]:
-    """Генератор: читає CSV і повертає записи по одному, не зберігаючи весь файл.
+def iter_records(path: Path) -> Iterator[Repair]:
+    """Генератор об'єктів: читає CSV по одному запису.
 
     Raises:
         DataError: файл не прочитано, CSV пошкоджений або значення хибне.
@@ -127,7 +99,7 @@ def iter_records(path: Path) -> Iterator[Record]:
     try:
         # newline="" передає керування роздільниками рядків модулю csv.
         with path.open("r", encoding="utf-8", newline="") as source:
-            reader = csv.DictReader(source, skipinitialspace=False)
+            reader = csv.DictReader(source)
             _check_header(reader.fieldnames)
             reader.fieldnames = [name.strip() for name in reader.fieldnames or []]
             for row in reader:
@@ -138,6 +110,6 @@ def iter_records(path: Path) -> Iterator[Record]:
         raise DataError(f"Пошкоджений CSV: {error}") from error
 
 
-def load_records(path: Path) -> list[Record]:
-    """Читає всі записи файла у список (порядок файла зберігається)."""
+def load_records(path: Path) -> list[Repair]:
+    """Читає всі записи файла у список об'єктів (порядок файла зберігається)."""
     return list(iter_records(path))
