@@ -45,6 +45,11 @@ jobs:
         run: |
           "$WHEEL_PY" -m kzp_lab06 data/input.csv out/summary.txt
           diff out/summary.txt reports/summary.txt
+      - name: CLI --details on lab07 dataset (both subtypes)
+        run: |
+          "$WHEEL_PY" -m kzp_lab06 data/input-lab07.csv out/lab07.txt --details | tee out/details.txt
+          grep -q "Гарантійний: 0.00 грн" out/details.txt
+          grep -q "Платний:" out/details.txt
       - name: CLI error scenario returns code 2
         run: |
           set +e
